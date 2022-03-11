@@ -1,0 +1,19 @@
+[package]
+name = "todolist"
+version = "0.1.0"
+authors = ["mochidaz <rahmanhakim2435@protonmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = "1.0.122"
+serde_derive = "1.0.122"
+serde_json = "1.0.61"
+tui = "0.17.0"
+crossterm = "0.22"
+rand = "0.8"
+clap = "2.33.3"
+chrono = "0.4.19"
+thiserror = "1.0.24"
+unicode-width = "0.1.9"
