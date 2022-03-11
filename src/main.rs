@@ -121,28 +121,37 @@ fn main() {
     } else {
         match (title_exists, content_exists) {
             (true, true) => {
-                edit_todo(
+                match edit_todo(
                     filename,
                     edit.parse::<i32>().unwrap(),
                     &Some(title.to_string()),
                     &Some(content.to_string()),
-                );
+                ) {
+                    Status::Success => println!("Edit success"),
+                    Status::Failed => println!("Edit Failed")
+                }
             }
             (true, false) => {
-                edit_todo(
+                match edit_todo(
                     filename,
                     edit.parse::<i32>().unwrap(),
                     &Some(title.to_string()),
                     &None,
-                );
+                ) {
+                    Status::Success => println!("Edit success"),
+                    Status::Failed => println!("Edit Failed")
+                }
             }
             (false, true) => {
-                edit_todo(
+                match edit_todo(
                     filename,
                     edit.parse::<i32>().unwrap(),
                     &None,
                     &Some(content.to_string()),
-                );
+                ) {
+                    Status::Success => println!("Edit success"),
+                    Status::Failed => println!("Edit Failed")
+                }
             }
             (false, false) => {
                 println!("Whatchu wanna edit lol?")
