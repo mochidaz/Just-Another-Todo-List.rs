@@ -1,177 +1,243 @@
-use chrono::prelude::*;
-use clap::{App, Arg, ArgMatches};
+use std::{error::Error, io};
 use std::time::SystemTime;
-use todo::{delete_todo, edit_todo};
 
+use chrono::prelude::*;
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use tui::{
+    backend::{Backend, CrosstermBackend},
+    Frame,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    Terminal,
+    text::{Span, Spans, Text}, widgets::{Block, Borders, List, ListItem, Paragraph},
+};
+use tui::layout::Alignment;
+use tui::style::Color::Rgb;
+use tui::widgets::BorderType;
+use unicode_width::UnicodeWidthStr;
+
+use todo::{delete_todo, edit_todo};
 use utils::generate_number;
 
-use crate::parser::{get_line, write_json};
-use crate::todo::{show_todos, Status, Todo};
+use crate::parser::{get_line, get_todo_vec, write_json};
+use crate::todo::{Status, Todo};
 
 mod parser;
 mod todo;
 mod utils;
 
-fn args() -> ArgMatches<'static> {
-    App::new("Todo")
-        .version("0.1.0")
-        .author("Rahman Hakim <rahmanhakim2435@protonmail.com")
-        .about("Todo List")
-        .arg(
-            Arg::with_name("title")
-                .short("t")
-                .long("title")
-                .takes_value(true)
-                .help("Title of the todo")
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("content")
-                .short("c")
-                .long("content")
-                .takes_value(true)
-                .help("Content of the Todo")
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("show")
-                .short("s")
-                .long("show")
-                .takes_value(false)
-                .help("Show todos")
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("edit")
-                .short("e")
-                .long("edit")
-                .takes_value(true)
-                .help("Edit todo")
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("delete")
-                .short("d")
-                .long("delete")
-                .takes_value(true)
-                .help("Delete a todo. todo -d <todo number>")
-                .required(false),
-        )
-        .get_matches()
+enum InputMode {
+    Normal,
+    Editing,
+    Delete,
 }
 
-fn main() {
-    let number = 1;
-    let filename = "todo.txt";
-    let system_time = SystemTime::now();
-    let time: DateTime<Local> = system_time.into();
-    let arguments = args();
-    let show_exists = arguments.is_present("show");
-    let content_exists = arguments.is_present("content");
-    let delete_exists = arguments.is_present("delete");
-    let title_exists = arguments.is_present("title");
-    let edit_exists = arguments.is_present("edit");
-    let edit = arguments.value_of("edit").unwrap_or("0").to_string();
-    let content = arguments.value_of("content").unwrap_or("New").to_string();
-    let delete = arguments.value_of("delete").unwrap_or("Default");
-    let title = arguments
-        .value_of("title")
-        .unwrap_or("New Project")
-        .to_string();
+struct App {
+    input: String,
+    input_mode: InputMode,
+    todos: Vec<Todo>,
+}
 
-    if !edit_exists {
-        match (title_exists, content_exists, delete_exists) {
-            (true, true, _) => {
-                let mut t = Todo {
-                    number,
-                    title: title.clone(),
-                    content: content.clone(),
-                    date: time.format("%d/%m/%Y %T").to_string(),
-                };
-                generate_number(&mut t, filename);
-                write_json(&mut t, filename);
-            }
-            (false, true, _) => {
-                let mut t = Todo {
-                    number,
-                    title: "Untitled Todo".to_string(),
-                    content: content.clone(),
-                    date: time.format("%d/%m/%Y %T").to_string(),
-                };
-                generate_number(&mut t, filename);
-                write_json(&mut t, filename);
-            }
-            (true, false, _) => {
-                let mut t = Todo {
-                    number,
-                    title: title.clone(),
-                    content: "...".to_string(),
-                    date: time.format("%d/%m/%Y %T").to_string(),
-                };
-                generate_number(&mut t, filename);
-                write_json(&mut t, filename);
-            }
-            (false, false, true) => {}
-            (false, false, false) => {
-                if !show_exists {
-                    println!("Why do you even use this, captain?")
-                }
-            }
-        }
-    } else {
-        match (title_exists, content_exists) {
-            (true, true) => {
-                match edit_todo(
-                    filename,
-                    edit.parse::<i32>().unwrap(),
-                    &Some(title.to_string()),
-                    &Some(content.to_string()),
-                ) {
-                    Status::Success => println!("Edit success"),
-                    Status::Failed => println!("Edit Failed")
-                }
-            }
-            (true, false) => {
-                match edit_todo(
-                    filename,
-                    edit.parse::<i32>().unwrap(),
-                    &Some(title.to_string()),
-                    &None,
-                ) {
-                    Status::Success => println!("Edit success"),
-                    Status::Failed => println!("Edit Failed")
-                }
-            }
-            (false, true) => {
-                match edit_todo(
-                    filename,
-                    edit.parse::<i32>().unwrap(),
-                    &None,
-                    &Some(content.to_string()),
-                ) {
-                    Status::Success => println!("Edit success"),
-                    Status::Failed => println!("Edit Failed")
-                }
-            }
-            (false, false) => {
-                println!("Whatchu wanna edit lol?")
-            }
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            input: String::new(),
+            input_mode: InputMode::Normal,
+            todos: get_todo_vec(FILENAME).unwrap(),
         }
     }
+}
 
-    if show_exists {
-        show_todos(filename);
+const FILENAME: &str = "todo.txt";
+
+fn main() -> Result<(), Box<dyn Error>> {
+    // setup terminal
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    // create app and run it
+    let app = App::default();
+    let res = run(&mut terminal, app);
+
+    // restore terminal
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    if let Err(err) = res {
+        println!("{:?}", err)
     }
 
-    if delete_exists {
-        let del = delete_todo(delete.parse::<usize>().unwrap(), filename);
-        match del {
-            Status::Success => {
-                println!("Successfully deleted");
+    Ok(())
+}
+
+fn run<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
+    loop {
+        let system_time = SystemTime::now();
+        let time: DateTime<Local> = system_time.into();
+
+        terminal.draw(|f| ui(f, &app))?;
+
+        if let Event::Key(key) = event::read()? {
+            match app.input_mode {
+                InputMode::Normal => match key.code {
+                    KeyCode::Char('e') => {
+                        app.input_mode = InputMode::Editing;
+                    }
+                    KeyCode::Char('q') => {
+                        return Ok(());
+                    }
+                    KeyCode::Char('d') => {
+                        app.input_mode = InputMode::Delete;
+                    }
+                    _ => {}
+                },
+                InputMode::Editing => match key.code {
+                    KeyCode::Enter => {
+                        let mut todo = Todo {
+                            number: 1,
+                            content: app.input.drain(..).collect(),
+                            date: time.format("%d/%m/%Y %T").to_string(),
+                        };
+
+                        app.todos.push(todo.clone());
+                        generate_number(&mut todo, FILENAME);
+                        write_json(&mut todo, FILENAME);
+                    }
+                    KeyCode::Char(c) => {
+                        app.input.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input.pop();
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                    }
+                    _ => {}
+                },
+                InputMode::Delete => match key.code {
+                    KeyCode::Enter => {
+                        let num: String = app.input.drain(..).collect();
+                        delete_todo(num.parse().unwrap(), FILENAME);
+                        app.todos = get_todo_vec(FILENAME).unwrap();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input.pop();
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                    }
+                    _ => {}
+                },
             }
-            Status::Failed => {
-                println!("The todo with following number does not exist!")
-            }
-        };
+        }
     }
+}
+
+
+fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(2)
+        .constraints(
+            [
+                Constraint::Length(1),
+                Constraint::Length(3),
+                Constraint::Min(1),
+            ]
+                .as_ref(),
+        )
+        .split(f.size());
+
+    let (msg, style) = match app.input_mode {
+        InputMode::Normal => (
+            vec![
+                Span::raw("Press "),
+                Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" to exit, "),
+                Span::styled("e", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" to start inserting your todos, "),
+                Span::styled("d", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" to start deleting your todos."),
+            ],
+            Style::default().add_modifier(Modifier::RAPID_BLINK),
+        ),
+        InputMode::Editing => (
+            vec![
+                Span::raw("Press "),
+                Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" to stop editing, "),
+                Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" to add your new todo"),
+            ],
+            Style::default(),
+        ),
+        InputMode::Delete => (
+            vec![
+                Span::raw("Press "),
+                Span::styled("Esc", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" to stop editing, "),
+                Span::styled("Enter", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" your todo number to delete it"),
+            ],
+            Style::default(),
+        ),
+    };
+    let mut text = Text::from(Spans::from(msg));
+    text.patch_style(style);
+    let help_message = Paragraph::new(text);
+    f.render_widget(help_message, chunks[0]);
+
+    let input = Paragraph::new(app.input.as_ref())
+        .style(match app.input_mode {
+            InputMode::Normal => Style::default(),
+            InputMode::Editing => Style::default().fg(Color::Yellow),
+            InputMode::Delete => Style::default().fg(Rgb(255, 0, 0))
+        })
+        .block(Block::default().borders(Borders::ALL).title("Input"));
+    f.render_widget(input, chunks[1]);
+    match app.input_mode {
+        InputMode::Normal =>
+            {}
+
+        InputMode::Editing => {
+            f.set_cursor(
+                chunks[1].x + app.input.width() as u16 + 1,
+                chunks[1].y + 1,
+            )
+        }
+        InputMode::Delete => {
+            f.set_cursor(
+                chunks[1].x + app.input.width() as u16 + 1,
+                chunks[1].y + 1,
+            )
+        }
+    }
+
+    let messages: Vec<ListItem> = app
+        .todos
+        .iter()
+        .enumerate()
+        .map(|(i, m)| {
+            let content = vec![Spans::from(Span::raw(format!("{} | {} : {}", (i + 1), m.date, m.content)))];
+            ListItem::new(content)
+        })
+        .collect();
+    let messages =
+        List::new(messages).block(Block::default().borders(Borders::ALL).title("Todo List"));
+    f.render_widget(messages, chunks[2]);
 }

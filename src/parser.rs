@@ -1,7 +1,7 @@
 use std::fs;
 use std::fs::File;
-use std::io::prelude::*;
 use std::io::{self, BufReader};
+use std::io::prelude::*;
 use std::path::Path;
 
 use serde_json::{json, Result};
@@ -9,8 +9,8 @@ use serde_json::{json, Result};
 use crate::todo::Todo;
 
 pub fn read_lines<P>(filename: P) -> io::Result<Vec<String>>
-where
-    P: AsRef<Path>,
+    where
+        P: AsRef<Path>,
 {
     let file = fs::File::open(filename)?;
     Ok(io::BufReader::new(file)
@@ -50,7 +50,6 @@ pub fn write_edit(
     todo: &mut Vec<Todo>,
     filename: &str,
     number: i32,
-    new_title: &Option<String>,
     new_content: &Option<String>,
 ) {
     fs::remove_file(filename);
@@ -62,10 +61,6 @@ pub fn write_edit(
     let mut f = file.unwrap();
     for i in todo {
         if i.number == number {
-            match new_title {
-                None => continue,
-                Some(v) => i.title = v.to_string(),
-            }
             match new_content {
                 None => continue,
                 Some(v) => i.content = v.to_string(),
