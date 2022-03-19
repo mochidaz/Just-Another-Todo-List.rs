@@ -6,10 +6,9 @@ use serde_json::{Result, Value};
 
 use crate::parser::{get_todo_vec, is_empty, read_lines, write_delete, write_edit};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Todo {
     pub number: i32,
-    pub title: String,
     pub content: String,
     pub date: String,
 }
@@ -19,21 +18,20 @@ pub enum Status {
     Failed,
 }
 
-pub fn show_todos(filename: &str) {
-    let todos = get_todo_vec(filename);
-    println!("---------------------TODOS----------------------");
-    for i in todos.unwrap() {
-        println!("[{}]------------[{}]-------------", i.number, i.date);
-        println!("{}", i.title);
-        println!("---------------------------------");
-        println!("{}", i.content);
-    }
-}
+// pub fn show_todos(filename: &str) {
+//     let todos = get_todo_vec(filename);
+//     println!("---------------------TODOS----------------------");
+//     for i in todos.unwrap() {
+//         println!("[{}]------------[{}]-------------", i.number, i.date);
+//         println!("{}", i.title);
+//         println!("---------------------------------");
+//         println!("{}", i.content);
+//     }
+// }
 
 pub fn edit_todo(
     filename: &str,
     number: i32,
-    new_title: &Option<String>,
     new_content: &Option<String>,
 ) -> Status {
     let mut success = false;
@@ -44,7 +42,7 @@ pub fn edit_todo(
 
             if let Some(_) = todos.get(number as usize - 1) {
                 success = true;
-                write_edit(&mut todos, filename, number, new_title, new_content);
+                write_edit(&mut todos, filename, number, new_content);
             } else {
                 success = false;
             }
@@ -71,8 +69,7 @@ pub fn delete_todo(todo_num: usize, filename: &str) -> Status {
             } else {
                 success = false;
             }
-        } else {
-        }
+        } else {}
     }
     if success {
         Status::Success
