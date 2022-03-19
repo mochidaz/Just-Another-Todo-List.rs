@@ -1,1 +1,1 @@
-Just another todo list written in Rust. I wrote this one or two years ago to practice Rust. Putting it here because i am plannign to integrate this with tui-rs when i have the time
+Just another todo list written in Rust. I wrote the todo a year ago, and using it to tinker around with tui-rs
